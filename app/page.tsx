@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { runAlgorithm, redact, AllergySeverity, RenalFunction, Mucositis } from "@/lib/algorithm";
+import { useState, useEffect, useRef } from "react";
+import { runAlgorithm, redact, AllergySeverity, RenalFunction, Mucositis, Bundle } from "@/lib/algorithm";
+
+type DecisionState = "pending" | "signed" | "overridden";
 
 export default function Home() {
   // Trigger inputs
@@ -17,6 +19,14 @@ export default function Home() {
   const [catheterPresent, setCatheterPresent] = useState<boolean>(false);
   const [mucositis, setMucositis] = useState<Mucositis>("none");
 
+  // AI speech state
+  const [speech, setSpeech] = useState<string>("");
+  const [speechLoading, setSpeechLoading] = useState<boolean>(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+
+  // Decision state
+  const [decision, setDecision] = useState<DecisionState>("pending");
+
   const ancNum = parseFloat(anc);
   const tempNum = parseFloat(temp);
   const ancValid = !isNaN(ancNum) && ancNum >= 0;
@@ -27,8 +37,7 @@ export default function Home() {
   const tempCriteriaMet = tempValid && tempNum >= tempThreshold;
   const criteriaMet = ancCriteriaMet && tempCriteriaMet;
 
-  // Run the algorithm only when criteria are met
-  const bundle = criteriaMet
+  const bundle: Bundle | null = criteriaMet
     ? redact(
         runAlgorithm({
           anc: ancNum,
@@ -43,6 +52,58 @@ export default function Home() {
         })
       )
     : null;
+
+  const bundleKey = bundle ? JSON.stringify(bundle) : "";
+
+  const lastBundleKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!bundleKey || bundleKey === lastBundleKey.current) return;
+    lastBundleKey.current = bundleKey;
+
+    setSpeech("");
+    setSpeechError(null);
+    setDecision("pending");
+    setSpeechLoading(true);
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const response = await fetch("/api/speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bundle: JSON.parse(bundleKey) }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          const errText = await response.text();
+          setSpeechError(errText || "Unable to generate speech.");
+          setSpeechLoading(false);
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          setSpeech((prev) => prev + chunk);
+        }
+
+        setSpeechLoading(false);
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        setSpeechError(err instanceof Error ? err.message : "Unknown error");
+        setSpeechLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [bundleKey]);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 p-8">
@@ -65,7 +126,6 @@ export default function Home() {
           </p>
         </section>
 
-        {/* ---- INPUTS ---- */}
         <section className="mb-8">
           <h2 className="text-sm uppercase tracking-wide text-neutral-400 mb-4">Inputs</h2>
 
@@ -87,9 +147,7 @@ export default function Home() {
             </div>
 
             <div>
-              <label className="block text-sm text-neutral-300 mb-2">
-                Temperature
-              </label>
+              <label className="block text-sm text-neutral-300 mb-2">Temperature</label>
               <div className="flex items-baseline gap-3">
                 <input
                   type="number"
@@ -114,12 +172,9 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ---- TRIGGER BANNER ---- */}
         {criteriaMet && (
           <section className="mb-8 p-5 border-l-2 border-amber-500 bg-amber-950/20">
-            <p className="text-xs uppercase tracking-wide text-amber-500 mb-1">
-              Trigger
-            </p>
+            <p className="text-xs uppercase tracking-wide text-amber-500 mb-1">Trigger</p>
             <p className="text-base text-neutral-100">
               Criteria met for empiric antibiotic coverage.
             </p>
@@ -130,38 +185,25 @@ export default function Home() {
           </section>
         )}
 
-        {/* ---- MODIFIERS (only shown after trigger fires) ---- */}
         {criteriaMet && (
           <section className="mb-8">
             <h2 className="text-sm uppercase tracking-wide text-neutral-400 mb-4">Patient modifiers</h2>
 
             <div className="space-y-5">
-              {/* Hemodynamic stability */}
               <div>
                 <label className="block text-sm text-neutral-300 mb-2">Hemodynamic status</label>
                 <div className="flex gap-4 text-sm">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={hemodynamicallyStable === true}
-                      onChange={() => setHemodynamicallyStable(true)}
-                      className="accent-neutral-400"
-                    />
+                    <input type="radio" checked={hemodynamicallyStable} onChange={() => setHemodynamicallyStable(true)} className="accent-neutral-400" />
                     Stable
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={hemodynamicallyStable === false}
-                      onChange={() => setHemodynamicallyStable(false)}
-                      className="accent-neutral-400"
-                    />
+                    <input type="radio" checked={!hemodynamicallyStable} onChange={() => setHemodynamicallyStable(false)} className="accent-neutral-400" />
                     Unstable
                   </label>
                 </div>
               </div>
 
-              {/* Penicillin allergy */}
               <div>
                 <label className="block text-sm text-neutral-300 mb-2">Penicillin allergy</label>
                 <select
@@ -175,20 +217,13 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* Recent MDR */}
               <div>
                 <label className="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={recentMDR}
-                    onChange={(e) => setRecentMDR(e.target.checked)}
-                    className="accent-neutral-400"
-                  />
+                  <input type="checkbox" checked={recentMDR} onChange={(e) => setRecentMDR(e.target.checked)} className="accent-neutral-400" />
                   Recent MDR colonization (MRSA / VRE / ESBL / KPC)
                 </label>
               </div>
 
-              {/* Renal function */}
               <div>
                 <label className="block text-sm text-neutral-300 mb-2">Renal function</label>
                 <select
@@ -201,20 +236,13 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* Catheter */}
               <div>
                 <label className="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={catheterPresent}
-                    onChange={(e) => setCatheterPresent(e.target.checked)}
-                    className="accent-neutral-400"
-                  />
+                  <input type="checkbox" checked={catheterPresent} onChange={(e) => setCatheterPresent(e.target.checked)} className="accent-neutral-400" />
                   Indwelling central catheter present
                 </label>
               </div>
 
-              {/* Mucositis */}
               <div>
                 <label className="block text-sm text-neutral-300 mb-2">Mucositis</label>
                 <select
@@ -231,18 +259,62 @@ export default function Home() {
           </section>
         )}
 
-        {/* ---- DEBUG OUTPUT (temporary — removed in Phase 4) ---- */}
         {bundle && (
           <section className="mb-8">
-            <h2 className="text-sm uppercase tracking-wide text-neutral-400 mb-4">
-              Debug: redacted bundle output
-            </h2>
+            <div className="flex items-baseline justify-between mb-3">
+              <h2 className="text-sm uppercase tracking-wide text-neutral-400">Second opinion</h2>
+              <span className="text-xs text-neutral-600 font-mono">claude-sonnet-4-5</span>
+            </div>
+
+            <div className="p-5 border border-neutral-800 rounded bg-neutral-900/40 min-h-[120px]">
+              {speechError && <p className="text-sm text-red-400">{speechError}</p>}
+              {!speechError && (
+                <p className="text-base text-neutral-100 leading-relaxed whitespace-pre-wrap">
+                  {speech}
+                  {speechLoading && (
+                    <span className="inline-block w-2 h-4 bg-neutral-400 ml-1 animate-pulse align-middle" />
+                  )}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
+
+        {bundle && !speechLoading && !speechError && speech && decision === "pending" && (
+          <section className="mb-8">
             <p className="text-xs text-neutral-500 mb-3">
-              Phase 3 scaffolding. The Phase 4 AI speech and cascade will replace this section.
+              Demonstration only — no real orders will be placed.
             </p>
-            <pre className="text-xs bg-neutral-900 border border-neutral-800 rounded p-4 overflow-x-auto text-neutral-300">
-              {JSON.stringify(bundle, null, 2)}
-            </pre>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDecision("signed")}
+                className="px-5 py-2.5 bg-neutral-100 text-neutral-900 rounded font-medium hover:bg-white transition-colors"
+              >
+                Sign
+              </button>
+              <button
+                onClick={() => setDecision("overridden")}
+                className="px-5 py-2.5 bg-transparent border border-neutral-700 text-neutral-300 rounded font-medium hover:border-neutral-500 hover:text-neutral-100 transition-colors"
+              >
+                Override
+              </button>
+            </div>
+          </section>
+        )}
+
+        {decision === "signed" && (
+          <section className="mb-8 p-5 border-l-2 border-emerald-600 bg-emerald-950/20">
+            <p className="text-xs uppercase tracking-wide text-emerald-500 mb-1">Decision recorded</p>
+            <p className="text-base text-neutral-100">Orders signed.</p>
+            <p className="text-xs text-neutral-400 mt-2">
+              [Cascade animation coming in next step — currently a placeholder.]
+            </p>
+          </section>
+        )}
+        {decision === "overridden" && (
+          <section className="mb-8 p-5 border-l-2 border-neutral-600 bg-neutral-900/40">
+            <p className="text-xs uppercase tracking-wide text-neutral-400 mb-1">Decision recorded</p>
+            <p className="text-base text-neutral-100">Override recorded.</p>
           </section>
         )}
 
@@ -251,9 +323,7 @@ export default function Home() {
             Lowfire &middot; A Floviken laboratory experiment &middot;{" "}
             <a href="https://floviken.se" className="hover:text-neutral-300">floviken.se</a>
           </p>
-          <p className="mt-1">
-            Architectural prototype only. Not for clinical use.
-          </p>
+          <p className="mt-1">Architectural prototype only. Not for clinical use.</p>
         </footer>
       </div>
     </main>
