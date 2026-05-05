@@ -11,6 +11,13 @@
 //   - IDSA 2010: https://academic.oup.com/cid/article/52/4/e56/382256
 //   - ASCO-IDSA 2018: https://ascopubs.org/doi/10.1200/JCO.2017.77.6211
 //
+// MDR organism logic (encoded per organism, not as a single "MDR" toggle):
+//   - MRSA → add vancomycin (glycopeptide)
+//   - VRE  → add linezolid (oxazolidinone) — covers VRE, also covers MRSA
+//   - ESBL → escalate from cefepime to meropenem (carbapenem)
+//   - KPC  → use ceftazidime-avibactam (β-lactam-inhibitor); meropenem
+//            alone does NOT cover KPC because KPC is carbapenemase
+//
 // Lowfire is an architectural prototype. Not for clinical use.
 
 export type AllergySeverity = "none" | "mild" | "severe";
@@ -18,23 +25,26 @@ export type RenalFunction = "normal" | "impaired";
 export type Mucositis = "none" | "mild" | "severe";
 
 export interface AlgorithmInput {
-  anc: number;                    // cells/mm³
-  temp: number;                   // °C
-  sustained: boolean;             // sustained ≥38.0°C for ≥1h
-  hemodynamicallyStable: boolean; // false = unstable
+  anc: number;
+  temp: number;
+  sustained: boolean;
+  hemodynamicallyStable: boolean;
   penicillinAllergy: AllergySeverity;
-  recentMDR: boolean;             // recent MDR colonization (MRSA/VRE/ESBL/KPC)
+  mrsa: boolean;
+  vre: boolean;
+  esbl: boolean;
+  kpc: boolean;
   renalFunction: RenalFunction;
   catheterPresent: boolean;
   mucositis: Mucositis;
 }
 
 export interface OrderItem {
-  agent: string;       // real drug name (e.g. "Cefepime")
-  agentClass: string;  // class-level label (e.g. "β-lactam-1")
-  route: string;       // e.g. "IV"
-  doseShape: string;   // e.g. "2g every 8 hours"
-  notes?: string;      // e.g. "renal-adjusted"
+  agent: string;
+  agentClass: string;
+  route: string;
+  doseShape: string;
+  notes?: string;
   stat?: boolean;
 }
 
@@ -52,8 +62,8 @@ export interface Bundle {
   nursing: BundleAction[];
   pharmacy: BundleAction[];
   reconciliation: BundleAction[];
-  decisions: string[];        // reasoning trail for AI prompt
-  outOfScope: string[];       // limits the algorithm doesn't cover
+  decisions: string[];
+  outOfScope: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +100,6 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
     `(${input.sustained ? "sustained ≥38.0°C" : "single ≥38.3°C"}).`
   );
 
-  // Risk stratification — v1 simplified to hemodynamic stability
   const riskCategory: "high" = "high";
   if (input.hemodynamicallyStable) {
     decisions.push(
@@ -102,14 +111,16 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
     );
   }
 
-  // ---- Antibiotic selection ------------------------------------------------
-
   const antibiotics: OrderItem[] = [];
 
-  // Default: antipseudomonal β-lactam monotherapy with Cefepime
-  // Penicillin allergy modifies this choice
+  // ---- Gram-negative β-lactam selection ------------------------------------
+  // Default: cefepime (antipseudomonal β-lactam monotherapy)
+  // Modifiers: severe penicillin allergy → fluoroquinolone + monobactam
+  //            ESBL history → escalate to meropenem
+  //            KPC history → ceftazidime-avibactam (carbapenem alone fails)
+
   if (input.penicillinAllergy === "severe") {
-    // Severe (anaphylactic) penicillin allergy — avoid β-lactams
+    // Severe (anaphylactic) penicillin allergy — avoid β-lactams entirely
     antibiotics.push({
       agent: "Ciprofloxacin",
       agentClass: "fluoroquinolone-1",
@@ -129,8 +140,52 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
     decisions.push(
       "Severe penicillin allergy — substituted fluoroquinolone + monobactam regimen for β-lactam monotherapy."
     );
+    if (input.esbl || input.kpc) {
+      outOfScope.push(
+        "Severe β-lactam allergy combined with ESBL or KPC history is a complex case; ID consultation is warranted."
+      );
+      decisions.push(
+        "Severe allergy combined with ESBL/KPC: this regimen may not adequately cover the resistance pattern. Flagged for ID consult."
+      );
+    }
+  } else if (input.kpc) {
+    // KPC takes precedence over ESBL (KPC strains are typically also ESBL)
+    antibiotics.push({
+      agent: "Ceftazidime-avibactam",
+      agentClass: "β-lactam-inhibitor-1",
+      route: "IV",
+      doseShape: "X g every Y hours",
+      notes: input.renalFunction === "impaired" ? "renal-adjusted; selected for KPC coverage" : "selected for KPC coverage",
+      stat: true,
+    });
+    decisions.push(
+      "Recent KPC colonization — selected β-lactam-inhibitor combination. Standard carbapenems do not cover KPC because KPC is a carbapenemase."
+    );
+    if (input.penicillinAllergy === "mild") {
+      decisions.push(
+        "Mild penicillin allergy noted — β-lactam-inhibitor combination acceptable (low cross-reactivity)."
+      );
+    }
+  } else if (input.esbl) {
+    // ESBL → escalate from cefepime to a carbapenem
+    antibiotics.push({
+      agent: "Meropenem",
+      agentClass: "carbapenem-1",
+      route: "IV",
+      doseShape: "X g every Y hours",
+      notes: input.renalFunction === "impaired" ? "renal-adjusted; selected for ESBL coverage" : "selected for ESBL coverage",
+      stat: true,
+    });
+    decisions.push(
+      "Recent ESBL colonization — escalated from cefepime to a carbapenem for reliable empiric coverage."
+    );
+    if (input.penicillinAllergy === "mild") {
+      decisions.push(
+        "Mild penicillin allergy noted — carbapenem acceptable (low cross-reactivity)."
+      );
+    }
   } else {
-    // Standard or mild allergy — cefepime is acceptable (low cross-reactivity)
+    // Standard pathway: cefepime
     antibiotics.push({
       agent: "Cefepime",
       agentClass: "β-lactam-1",
@@ -150,15 +205,54 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
     }
   }
 
-  // ---- Vancomycin add-on logic ---------------------------------------------
+  // ---- Gram-positive add-on logic ------------------------------------------
+  // VRE history → linezolid (covers VRE AND MRSA, so vancomycin not added)
+  // MRSA history (no VRE) → vancomycin
+  // Otherwise: vancomycin add-on triggered by catheter / severe mucositis /
+  //            hemodynamic instability
 
-  const vancomycinReasons: string[] = [];
-  if (input.catheterPresent) vancomycinReasons.push("indwelling catheter");
-  if (input.mucositis === "severe") vancomycinReasons.push("severe mucositis");
-  if (!input.hemodynamicallyStable) vancomycinReasons.push("hemodynamic instability");
-  if (input.recentMDR) vancomycinReasons.push("recent MDR colonization");
+  const grampositiveReasons: string[] = [];
+  if (input.catheterPresent) grampositiveReasons.push("indwelling catheter");
+  if (input.mucositis === "severe") grampositiveReasons.push("severe mucositis");
+  if (!input.hemodynamicallyStable) grampositiveReasons.push("hemodynamic instability");
 
-  if (vancomycinReasons.length > 0) {
+  if (input.vre) {
+    // VRE → linezolid (vancomycin won't work; linezolid also covers MRSA)
+    antibiotics.push({
+      agent: "Linezolid",
+      agentClass: "oxazolidinone-1",
+      route: "IV",
+      doseShape: "X mg every Y hours",
+      notes: "selected for VRE coverage; also covers MRSA if present",
+      stat: true,
+    });
+    const vreReasons = ["recent VRE colonization"];
+    if (input.mrsa) vreReasons.push("recent MRSA colonization (covered by same agent)");
+    decisions.push(
+      `Recent VRE colonization — selected oxazolidinone instead of glycopeptide. Vancomycin does not cover VRE by definition.`
+    );
+    if (grampositiveReasons.length > 0) {
+      decisions.push(
+        `Additional gram-positive risk factors present (${grampositiveReasons.join(", ")}) — covered by oxazolidinone selection.`
+      );
+    }
+  } else if (input.mrsa) {
+    // MRSA without VRE → vancomycin
+    antibiotics.push({
+      agent: "Vancomycin",
+      agentClass: "glycopeptide-1",
+      route: "IV",
+      doseShape: "X mg/kg loading dose, then trough-guided",
+      notes: "selected for MRSA coverage",
+      stat: true,
+    });
+    const mrsaReasons = ["recent MRSA colonization"];
+    if (grampositiveReasons.length > 0) mrsaReasons.push(...grampositiveReasons);
+    decisions.push(
+      `Recent MRSA colonization — added glycopeptide for gram-positive coverage. ${grampositiveReasons.length > 0 ? `Additional indications: ${grampositiveReasons.join(", ")}.` : ""}`
+    );
+  } else if (grampositiveReasons.length > 0) {
+    // No specific MDR history but other gram-positive triggers → vancomycin
     antibiotics.push({
       agent: "Vancomycin",
       agentClass: "glycopeptide-1",
@@ -168,7 +262,7 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
       stat: true,
     });
     decisions.push(
-      `Vancomycin added due to: ${vancomycinReasons.join(", ")}.`
+      `Glycopeptide added for empiric gram-positive coverage due to: ${grampositiveReasons.join(", ")}.`
     );
   }
 
@@ -241,17 +335,21 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
   const pharmacy: BundleAction[] = [
     { label: "Verify renal dosing on empiric antibiotics" },
   ];
-  if (input.recentMDR) {
+  const mdrFlags: string[] = [];
+  if (input.mrsa) mdrFlags.push("MRSA");
+  if (input.vre) mdrFlags.push("VRE");
+  if (input.esbl) mdrFlags.push("ESBL");
+  if (input.kpc) mdrFlags.push("KPC");
+  if (mdrFlags.length > 0) {
     pharmacy.push({
       label: "Cross-check empiric coverage against patient's MDR history",
+      detail: `Documented colonization: ${mdrFlags.join(", ")}`,
     });
   }
 
   // ---- Reconciliation ------------------------------------------------------
 
   const reconciliation: BundleAction[] = [];
-  // In a real EHR this would query the medication list. For the prototype,
-  // we emit a generic reconciliation prompt.
   reconciliation.push({
     label: "Discontinue any prior empiric β-lactam",
     detail: "to avoid duplicate therapy",
@@ -262,17 +360,17 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
   outOfScope.push(
     "Local antibiogram and unit-specific resistance patterns are not in the algorithm; consider when finalizing coverage."
   );
-  if (input.recentMDR) {
-    outOfScope.push(
-      "Specific MDR organism history may warrant tailored coverage beyond empiric defaults."
-    );
-  }
   outOfScope.push(
     "Pediatric dosing is not covered by this algorithm (adults only)."
   );
   outOfScope.push(
     "MASCC scoring and full risk-stratification beyond hemodynamic stability are not implemented in v1."
   );
+  if ((input.kpc || input.esbl) && input.mrsa) {
+    outOfScope.push(
+      "Combined gram-negative and gram-positive resistance patterns may warrant ID consultation for source-specific tailoring."
+    );
+  }
 
   return {
     triggered: true,
@@ -291,16 +389,13 @@ export function runAlgorithm(input: AlgorithmInput): Bundle {
 // ---------------------------------------------------------------------------
 // redact
 // ---------------------------------------------------------------------------
-// Returns a copy of the bundle with all real drug names replaced by their
-// class-level labels. The display layer should only ever render the output
-// of this function.
 
 export function redact(bundle: Bundle): Bundle {
   return {
     ...bundle,
     antibiotics: bundle.antibiotics.map((order) => ({
       ...order,
-      agent: order.agentClass, // overwrite real drug name with class label
+      agent: order.agentClass,
     })),
     decisions: bundle.decisions.map(redactString),
     reconciliation: bundle.reconciliation.map((action) => ({
@@ -311,17 +406,23 @@ export function redact(bundle: Bundle): Bundle {
   };
 }
 
-// Replace any real drug names in free-text strings with their class labels.
-// Conservative: only the agents we use in the algorithm above.
 function redactString(s: string): string {
   return s
     .replace(/\bCefepime\b/g, "β-lactam-1")
     .replace(/\bcefepime\b/g, "β-lactam-1")
+    .replace(/\bMeropenem\b/g, "carbapenem-1")
+    .replace(/\bmeropenem\b/g, "carbapenem-1")
+    .replace(/\bCarbapenems?\b/g, "carbapenem-1")
+    .replace(/\bcarbapenems?\b/g, "carbapenem-1")
+    .replace(/\bCeftazidime-avibactam\b/g, "β-lactam-inhibitor-1")
+    .replace(/\bceftazidime-avibactam\b/g, "β-lactam-inhibitor-1")
     .replace(/\bCiprofloxacin\b/g, "fluoroquinolone-1")
     .replace(/\bciprofloxacin\b/g, "fluoroquinolone-1")
     .replace(/\bAztreonam\b/g, "monobactam-1")
     .replace(/\baztreonam\b/g, "monobactam-1")
     .replace(/\bVancomycin\b/g, "glycopeptide-1")
     .replace(/\bvancomycin\b/g, "glycopeptide-1")
+    .replace(/\bLinezolid\b/g, "oxazolidinone-1")
+    .replace(/\blinezolid\b/g, "oxazolidinone-1")
     .replace(/β-lactam(?!-)/g, "β-lactam-1");
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { runAlgorithm, redact, AllergySeverity, RenalFunction, Mucositis, Bundle } from "@/lib/algorithm";
 
 type DecisionState = "pending" | "signed" | "overridden";
@@ -20,7 +20,10 @@ export default function Home() {
 
   const [hemodynamicallyStable, setHemodynamicallyStable] = useState<boolean>(true);
   const [penicillinAllergy, setPenicillinAllergy] = useState<AllergySeverity>("none");
-  const [recentMDR, setRecentMDR] = useState<boolean>(false);
+  const [mrsa, setMrsa] = useState<boolean>(false);
+  const [vre, setVre] = useState<boolean>(false);
+  const [esbl, setEsbl] = useState<boolean>(false);
+  const [kpc, setKpc] = useState<boolean>(false);
   const [renalFunction, setRenalFunction] = useState<RenalFunction>("normal");
   const [catheterPresent, setCatheterPresent] = useState<boolean>(false);
   const [mucositis, setMucositis] = useState<Mucositis>("none");
@@ -28,6 +31,8 @@ export default function Home() {
   const [speech, setSpeech] = useState<string>("");
   const [speechLoading, setSpeechLoading] = useState<boolean>(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [speechRequested, setSpeechRequested] = useState<boolean>(false);
+  const [bundleAtRequest, setBundleAtRequest] = useState<Bundle | null>(null);
 
   const [decision, setDecision] = useState<DecisionState>("pending");
 
@@ -38,6 +43,8 @@ export default function Home() {
   const [closingLoading, setClosingLoading] = useState<boolean>(false);
 
   const [overrideReason, setOverrideReason] = useState<string>("");
+
+  const speechAbortRef = useRef<AbortController | null>(null);
 
   const ancNum = parseFloat(anc);
   const tempNum = parseFloat(temp);
@@ -57,7 +64,10 @@ export default function Home() {
           sustained,
           hemodynamicallyStable,
           penicillinAllergy,
-          recentMDR,
+          mrsa,
+          vre,
+          esbl,
+          kpc,
           renalFunction,
           catheterPresent,
           mucositis,
@@ -65,15 +75,30 @@ export default function Home() {
       )
     : null;
 
-  const bundleKey = bundle ? JSON.stringify(bundle) : "";
-  const lastBundleKey = useRef<string>("");
+  if (!criteriaMet && (speechRequested || decision !== "pending")) {
+    if (speechAbortRef.current) speechAbortRef.current.abort();
+    setSpeech("");
+    setSpeechError(null);
+    setSpeechRequested(false);
+    setBundleAtRequest(null);
+    setDecision("pending");
+    setCascade([]);
+    setCascadeComplete(false);
+    setClosing("");
+    setOverrideReason("");
+  }
 
-  useEffect(() => {
-    if (!bundleKey || bundleKey === lastBundleKey.current) return;
-    lastBundleKey.current = bundleKey;
+  async function handleGetSecondOpinion() {
+    if (!bundle) return;
+
+    if (speechAbortRef.current) speechAbortRef.current.abort();
+    const controller = new AbortController();
+    speechAbortRef.current = controller;
 
     setSpeech("");
     setSpeechError(null);
+    setSpeechRequested(true);
+    setBundleAtRequest(bundle);
     setDecision("pending");
     setCascade([]);
     setCascadeComplete(false);
@@ -81,44 +106,38 @@ export default function Home() {
     setOverrideReason("");
     setSpeechLoading(true);
 
-    const controller = new AbortController();
+    try {
+      const response = await fetch("/api/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle }),
+        signal: controller.signal,
+      });
 
-    (async () => {
-      try {
-        const response = await fetch("/api/speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bundle: JSON.parse(bundleKey) }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok || !response.body) {
-          const errText = await response.text();
-          setSpeechError(errText || "Unable to generate speech.");
-          setSpeechLoading(false);
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          setSpeech((prev) => prev + chunk);
-        }
-
+      if (!response.ok || !response.body) {
+        const errText = await response.text();
+        setSpeechError(errText || "Unable to generate speech.");
         setSpeechLoading(false);
-      } catch (err) {
-        if ((err as Error).name === "AbortError") return;
-        setSpeechError(err instanceof Error ? err.message : "Unknown error");
-        setSpeechLoading(false);
+        return;
       }
-    })();
 
-    return () => controller.abort();
-  }, [bundleKey]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        setSpeech((prev) => prev + chunk);
+      }
+
+      setSpeechLoading(false);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      setSpeechError(err instanceof Error ? err.message : "Unknown error");
+      setSpeechLoading(false);
+    }
+  }
 
   function buildCascadeLines(b: Bundle): CascadeLine[] {
     const lines: CascadeLine[] = [];
@@ -156,10 +175,10 @@ export default function Home() {
   }
 
   async function handleSign() {
-    if (!bundle) return;
+    if (!bundleAtRequest) return;
     setDecision("signed");
 
-    const lines = buildCascadeLines(bundle);
+    const lines = buildCascadeLines(bundleAtRequest);
     setCascade(lines.map((l) => ({ ...l, status: "pending" })));
 
     const lineDelay = 600;
@@ -180,7 +199,7 @@ export default function Home() {
       const response = await fetch("/api/closing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bundle }),
+        body: JSON.stringify({ bundle: bundleAtRequest }),
       });
 
       if (!response.ok || !response.body) {
@@ -198,7 +217,7 @@ export default function Home() {
         setClosing((prev) => prev + chunk);
       }
     } catch {
-      // silent fail on closing
+      // silent
     } finally {
       setClosingLoading(false);
     }
@@ -214,11 +233,29 @@ export default function Home() {
     setSustained(false);
     setHemodynamicallyStable(true);
     setPenicillinAllergy("none");
-    setRecentMDR(false);
+    setMrsa(false);
+    setVre(false);
+    setEsbl(false);
+    setKpc(false);
     setRenalFunction("normal");
     setCatheterPresent(true);
     setMucositis("mild");
+    setSpeech("");
+    setSpeechError(null);
+    setSpeechRequested(false);
+    setBundleAtRequest(null);
+    setDecision("pending");
+    setCascade([]);
+    setCascadeComplete(false);
+    setClosing("");
+    setOverrideReason("");
   }
+
+  const bundleChangedSinceRequest =
+    speechRequested &&
+    bundleAtRequest &&
+    bundle &&
+    JSON.stringify(bundle) !== JSON.stringify(bundleAtRequest);
 
   const inputStatus: NodeStatus = criteriaMet ? "complete" : ancValid || tempValid ? "active" : "idle";
   const algorithmStatus: NodeStatus = criteriaMet ? "complete" : "idle";
@@ -232,7 +269,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
-      {/* ---- STATUS INDICATOR ---- */}
       <div className="border-b border-[var(--border)] bg-[var(--background)]/95 sticky top-0 z-10 backdrop-blur-sm">
         <div className="max-w-3xl mx-auto px-8 py-4 overflow-x-auto">
           <div className="flex items-center gap-4 text-sm font-[family-name:var(--font-mono)] whitespace-nowrap min-w-max">
@@ -345,6 +381,9 @@ export default function Home() {
                 ANC {ancNum} cells/mm³ · Temperature {tempNum.toFixed(1)}°C
                 {sustained && " (sustained)"}
               </p>
+              <p className="text-sm text-[var(--text-muted)] mt-3 font-[family-name:var(--font-sans)] italic">
+                Continue with patient modifiers below to compose the case.
+              </p>
             </section>
           )}
 
@@ -383,10 +422,29 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 text-sm text-[var(--text)] cursor-pointer">
-                    <input type="checkbox" checked={recentMDR} onChange={(e) => setRecentMDR(e.target.checked)} className="accent-[var(--accent-amber)]" />
-                    Recent MDR colonization (MRSA / VRE / ESBL / KPC)
-                  </label>
+                  <label className="block text-sm text-[var(--text)] mb-3">Recent MDR colonization</label>
+                  <div className="space-y-2 pl-1">
+                    <label className="flex items-center gap-2 text-sm text-[var(--text)] cursor-pointer">
+                      <input type="checkbox" checked={mrsa} onChange={(e) => setMrsa(e.target.checked)} className="accent-[var(--accent-amber)]" />
+                      MRSA
+                      <span className="text-xs text-[var(--text-subtle)] ml-1">— adds glycopeptide coverage</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-[var(--text)] cursor-pointer">
+                      <input type="checkbox" checked={vre} onChange={(e) => setVre(e.target.checked)} className="accent-[var(--accent-amber)]" />
+                      VRE
+                      <span className="text-xs text-[var(--text-subtle)] ml-1">— substitutes oxazolidinone (vancomycin ineffective)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-[var(--text)] cursor-pointer">
+                      <input type="checkbox" checked={esbl} onChange={(e) => setEsbl(e.target.checked)} className="accent-[var(--accent-amber)]" />
+                      ESBL
+                      <span className="text-xs text-[var(--text-subtle)] ml-1">— escalates β-lactam to carbapenem</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-[var(--text)] cursor-pointer">
+                      <input type="checkbox" checked={kpc} onChange={(e) => setKpc(e.target.checked)} className="accent-[var(--accent-amber)]" />
+                      KPC
+                      <span className="text-xs text-[var(--text-subtle)] ml-1">— requires β-lactam-inhibitor combination</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div>
@@ -424,7 +482,21 @@ export default function Home() {
             </section>
           )}
 
-          {bundle && (
+          {criteriaMet && bundle && !speechRequested && (
+            <section className="mb-10">
+              <button
+                onClick={handleGetSecondOpinion}
+                className="font-[family-name:var(--font-sans)] px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
+              >
+                Get second opinion →
+              </button>
+              <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
+                Sends the composed case to claude-sonnet-4-5 to voice the recommendation.
+              </p>
+            </section>
+          )}
+
+          {speechRequested && (
             <section className="mb-10">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
@@ -446,10 +518,22 @@ export default function Home() {
                   </p>
                 )}
               </div>
+
+              {bundleChangedSinceRequest && !speechLoading && (
+                <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)] italic">
+                  Modifiers changed since this opinion was generated.{" "}
+                  <button
+                    onClick={handleGetSecondOpinion}
+                    className="underline hover:text-[var(--text)]"
+                  >
+                    Regenerate
+                  </button>
+                </p>
+              )}
             </section>
           )}
 
-          {bundle && !speechLoading && !speechError && speech && decision === "pending" && (
+          {speechRequested && !speechLoading && !speechError && speech && decision === "pending" && (
             <section className="mb-10">
               <p className="text-xs text-[var(--text-subtle)] mb-3 font-[family-name:var(--font-sans)]">
                 Demonstration only — no real orders will be placed.
