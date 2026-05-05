@@ -26,18 +26,19 @@ interface SoapSection {
 }
 
 export default function Home() {
-  const [anc, setAnc] = useState<string>("200");
-  const [temp, setTemp] = useState<string>("38.5");
+  // Empty by default — user clicks "Open hypothetical case" to populate
+  const [anc, setAnc] = useState<string>("");
+  const [temp, setTemp] = useState<string>("");
   const [sustained, setSustained] = useState<boolean>(false);
 
   const [hemodynamicallyStable, setHemodynamicallyStable] = useState<boolean>(true);
   const [penicillinAllergy, setPenicillinAllergy] = useState<AllergySeverity>("none");
   const [mrsa, setMrsa] = useState<boolean>(false);
   const [vre, setVre] = useState<boolean>(false);
-  const [esbl, setEsbl] = useState<boolean>(true);
+  const [esbl, setEsbl] = useState<boolean>(false);
   const [kpc, setKpc] = useState<boolean>(false);
   const [renalFunction, setRenalFunction] = useState<RenalFunction>("normal");
-  const [catheterPresent, setCatheterPresent] = useState<boolean>(true);
+  const [catheterPresent, setCatheterPresent] = useState<boolean>(false);
   const [mucositis, setMucositis] = useState<Mucositis>("none");
 
   const [alertResponse, setAlertResponse] = useState<AlertResponse>("pending");
@@ -72,6 +73,18 @@ export default function Home() {
   const prevClaudeStatusRef = useRef<NodeStatus>("idle");
   const prevClinicianStatusRef = useRef<NodeStatus>("idle");
 
+  const inputsSectionRef = useRef<HTMLElement>(null);
+  const intakeSectionRef = useRef<HTMLElement>(null);
+  const speechSectionRef = useRef<HTMLElement>(null);
+  const ordersSectionRef = useRef<HTMLElement>(null);
+  const closingSectionRef = useRef<HTMLElement>(null);
+  const noteSectionRef = useRef<HTMLElement>(null);
+
+  function scrollIntoViewSoft(el: HTMLElement | null) {
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const ancNum = parseFloat(anc);
   const tempNum = parseFloat(temp);
   const ancValid = !isNaN(ancNum) && ancNum >= 0;
@@ -81,6 +94,8 @@ export default function Home() {
   const tempThreshold = sustained ? 38.0 : 38.3;
   const tempCriteriaMet = tempValid && tempNum >= tempThreshold;
   const criteriaMet = ancCriteriaMet && tempCriteriaMet;
+
+  const noCaseLoaded = anc === "" && temp === "";
 
   const bundle: Bundle | null = criteriaMet
     ? redact(
@@ -120,6 +135,23 @@ export default function Home() {
     setOverrideReason("");
   }
 
+  function handleOpenHypotheticalCase() {
+    setAnc("200");
+    setTemp("38.5");
+    setSustained(false);
+    setHemodynamicallyStable(true);
+    setPenicillinAllergy("none");
+    setMrsa(false);
+    setVre(false);
+    setEsbl(true);
+    setKpc(false);
+    setRenalFunction("normal");
+    setCatheterPresent(true);
+    setMucositis("none");
+    // Scroll the inputs section into view so the user sees the values populate
+    setTimeout(() => scrollIntoViewSoft(inputsSectionRef.current), 100);
+  }
+
   function buildIntakeLines(): IntakeLine[] {
     const mdrFlags: string[] = [];
     if (mrsa) mdrFlags.push("MRSA");
@@ -144,6 +176,8 @@ export default function Home() {
     setIntake(lines);
     setIntakeComplete(false);
 
+    setTimeout(() => scrollIntoViewSoft(intakeSectionRef.current), 100);
+
     const lineDelay = 240;
     for (let i = 0; i < lines.length; i++) {
       await new Promise((resolve) => setTimeout(resolve, lineDelay));
@@ -167,6 +201,30 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertResponse]);
+
+  useEffect(() => {
+    if (speechRequested && intakeComplete) {
+      setTimeout(() => scrollIntoViewSoft(speechSectionRef.current), 200);
+    }
+  }, [speechRequested, intakeComplete]);
+
+  useEffect(() => {
+    if (decision === "signed" && cascade.length > 0) {
+      setTimeout(() => scrollIntoViewSoft(ordersSectionRef.current), 100);
+    }
+  }, [decision, cascade.length]);
+
+  useEffect(() => {
+    if (cascadeComplete && (closingLoading || closing)) {
+      setTimeout(() => scrollIntoViewSoft(closingSectionRef.current), 200);
+    }
+  }, [cascadeComplete, closingLoading, closing]);
+
+  useEffect(() => {
+    if (noteRequested) {
+      setTimeout(() => scrollIntoViewSoft(noteSectionRef.current), 100);
+    }
+  }, [noteRequested]);
 
   function handleEngageAlert() {
     setAlertResponse("engaged");
@@ -457,7 +515,22 @@ export default function Home() {
             </p>
           </section>
 
-          <section className="mb-10">
+          {/* ---- OPEN HYPOTHETICAL CASE BUTTON ---- */}
+          {noCaseLoaded && (
+            <section className="mb-10 section-reveal">
+              <button
+                onClick={handleOpenHypotheticalCase}
+                className="font-[family-name:var(--font-sans)] px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
+              >
+                Open hypothetical case →
+              </button>
+              <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
+                Loads a worked example. You can adjust any value to see how the algorithm responds.
+              </p>
+            </section>
+          )}
+
+          <section ref={inputsSectionRef} className="mb-10 scroll-mt-24">
             <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-5">
               Inputs
             </h2>
@@ -510,7 +583,7 @@ export default function Home() {
           {criteriaMet && (
             <section
               key={`trigger-${criteriaMet}`}
-              className="mb-6 p-5 border-l-2 border-[var(--accent-amber)] bg-[var(--accent-amber-bg)] section-reveal trigger-glow"
+              className="mb-6 p-5 border-l-2 border-[var(--accent-amber)] bg-[var(--accent-amber-bg)] section-reveal trigger-glow scroll-mt-24"
             >
               <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--accent-amber)] mb-2">
                 Trigger
@@ -528,14 +601,14 @@ export default function Home() {
           {criteriaMet && alertResponse === "pending" && (
             <section className="mb-12 section-reveal">
               <p className="text-sm text-[var(--text-muted)] mb-4 font-[family-name:var(--font-sans)]">
-                The deterministic algorithm has produced a recommendation. Claude has drafted a second opinion based on the case.
+                The deterministic algorithm has produced a recommendation. Claude has drafted an opinion on the case in the voice of a hospitalist colleague.
               </p>
               <div className="flex flex-wrap gap-3 font-[family-name:var(--font-sans)]">
                 <button
                   onClick={handleEngageAlert}
                   className="px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
                 >
-                  Read AI second opinion →
+                  Read AI opinion →
                 </button>
                 <button
                   onClick={handleDismissAlert}
@@ -563,7 +636,7 @@ export default function Home() {
           {alertResponse === "engaged" && criteriaMet && (
             <>
               {intake.length > 0 && (
-                <section className="mb-10 section-reveal">
+                <section ref={intakeSectionRef} className="mb-10 section-reveal scroll-mt-24">
                   <div className="flex items-baseline justify-between mb-4">
                     <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
                       Algorithm intake
@@ -604,10 +677,10 @@ export default function Home() {
               )}
 
               {speechRequested && intakeComplete && (
-                <section className="mb-10 section-reveal">
+                <section ref={speechSectionRef} className="mb-10 section-reveal scroll-mt-24">
                   <div className="flex items-baseline justify-between mb-4">
                     <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
-                      Second opinion
+                      AI opinion
                     </h2>
                     <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--text-subtle)]">
                       claude-sonnet-4-5
@@ -663,7 +736,7 @@ export default function Home() {
               )}
 
               {decision === "signed" && cascade.length > 0 && (
-                <section className="mb-10 section-reveal">
+                <section ref={ordersSectionRef} className="mb-10 section-reveal scroll-mt-24">
                   <div className="flex items-baseline justify-between mb-4">
                     <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--accent-green)]">
                       Orders signed
@@ -703,7 +776,7 @@ export default function Home() {
               )}
 
               {decision === "signed" && cascadeComplete && (closing || closingLoading) && (
-                <section className="mb-10 section-reveal">
+                <section ref={closingSectionRef} className="mb-10 section-reveal scroll-mt-24">
                   <div className="p-6 border-l-2 border-[var(--border-strong)] bg-[var(--surface)]">
                     <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-3">
                       Closing
@@ -733,7 +806,7 @@ export default function Home() {
               )}
 
               {noteRequested && (
-                <section className="mb-10 section-reveal">
+                <section ref={noteSectionRef} className="mb-10 section-reveal scroll-mt-24">
                   <div className="flex items-baseline justify-between mb-4">
                     <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
                       Encounter note
