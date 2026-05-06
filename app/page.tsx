@@ -25,21 +25,34 @@ interface SoapSection {
   body: string;
 }
 
+type ModifierStepKey = "hemodynamic" | "mdr" | "renal" | "catheter";
+
+interface ModifierAnswer {
+  key: ModifierStepKey;
+  label: string;
+  value: string;
+}
+
+const MODIFIER_SEQUENCE: ModifierStepKey[] = ["hemodynamic", "mdr", "renal", "catheter"];
+
 export default function Home() {
-  // Empty by default — user clicks "Open hypothetical case" to populate
   const [anc, setAnc] = useState<string>("");
   const [temp, setTemp] = useState<string>("");
   const [sustained, setSustained] = useState<boolean>(false);
 
   const [hemodynamicallyStable, setHemodynamicallyStable] = useState<boolean>(true);
-  const [penicillinAllergy, setPenicillinAllergy] = useState<AllergySeverity>("none");
+  const [penicillinAllergy] = useState<AllergySeverity>("none");
   const [mrsa, setMrsa] = useState<boolean>(false);
   const [vre, setVre] = useState<boolean>(false);
   const [esbl, setEsbl] = useState<boolean>(false);
   const [kpc, setKpc] = useState<boolean>(false);
   const [renalFunction, setRenalFunction] = useState<RenalFunction>("normal");
   const [catheterPresent, setCatheterPresent] = useState<boolean>(false);
-  const [mucositis, setMucositis] = useState<Mucositis>("none");
+  const [mucositis] = useState<Mucositis>("none");
+
+  // Modifier flow state
+  const [modifierStep, setModifierStep] = useState<number>(-1); // -1 = not started, 0..N-1 = current, N = complete
+  const [modifierAnswers, setModifierAnswers] = useState<ModifierAnswer[]>([]);
 
   const [alertResponse, setAlertResponse] = useState<AlertResponse>("pending");
 
@@ -74,6 +87,8 @@ export default function Home() {
   const prevClinicianStatusRef = useRef<NodeStatus>("idle");
 
   const inputsSectionRef = useRef<HTMLElement>(null);
+  const modifierSectionRef = useRef<HTMLElement>(null);
+  const alertSectionRef = useRef<HTMLElement>(null);
   const intakeSectionRef = useRef<HTMLElement>(null);
   const speechSectionRef = useRef<HTMLElement>(null);
   const ordersSectionRef = useRef<HTMLElement>(null);
@@ -96,8 +111,9 @@ export default function Home() {
   const criteriaMet = ancCriteriaMet && tempCriteriaMet;
 
   const noCaseLoaded = anc === "" && temp === "";
+  const modifiersComplete = modifierStep >= MODIFIER_SEQUENCE.length;
 
-  const bundle: Bundle | null = criteriaMet
+  const bundle: Bundle | null = criteriaMet && modifiersComplete
     ? redact(
         runAlgorithm({
           anc: ancNum,
@@ -139,17 +155,25 @@ export default function Home() {
     setAnc("200");
     setTemp("38.5");
     setSustained(false);
+    // Reset modifiers — user will click through them
     setHemodynamicallyStable(true);
-    setPenicillinAllergy("none");
     setMrsa(false);
     setVre(false);
-    setEsbl(true);
+    setEsbl(false);
     setKpc(false);
     setRenalFunction("normal");
-    setCatheterPresent(true);
-    setMucositis("none");
-    // Scroll the inputs section into view so the user sees the values populate
+    setCatheterPresent(false);
+    setModifierStep(0);
+    setModifierAnswers([]);
     setTimeout(() => scrollIntoViewSoft(inputsSectionRef.current), 100);
+    // After the trigger fires (criteriaMet becomes true), scroll to modifier section
+    setTimeout(() => scrollIntoViewSoft(modifierSectionRef.current), 700);
+  }
+
+  function answerModifier(key: ModifierStepKey, label: string, value: string, apply: () => void) {
+    apply();
+    setModifierAnswers((prev) => [...prev, { key, label, value }]);
+    setModifierStep((s) => s + 1);
   }
 
   function buildIntakeLines(): IntakeLine[] {
@@ -163,11 +187,9 @@ export default function Home() {
       { label: "ANC", value: `${ancNum} cells/mm³ · trigger`, status: "pending" },
       { label: "Temperature", value: `${tempNum.toFixed(1)}°C · trigger`, status: "pending" },
       { label: "Hemodynamic status", value: hemodynamicallyStable ? "stable" : "unstable", status: "pending" },
-      { label: "Penicillin allergy", value: penicillinAllergy === "none" ? "none" : penicillinAllergy, status: "pending" },
       { label: "MDR colonization", value: mdrFlags.length > 0 ? mdrFlags.join(", ") : "none", status: "pending" },
-      { label: "Renal function", value: renalFunction, status: "pending" },
+      { label: "Renal function", value: renalFunction === "normal" ? "GFR ≥60" : "GFR <30", status: "pending" },
       { label: "Indwelling catheter", value: catheterPresent ? "present" : "absent", status: "pending" },
-      { label: "Mucositis", value: mucositis, status: "pending" },
     ];
   }
 
@@ -201,6 +223,13 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertResponse]);
+
+  useEffect(() => {
+    if (modifiersComplete && alertResponse === "pending") {
+      setTimeout(() => scrollIntoViewSoft(alertSectionRef.current), 200);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modifiersComplete]);
 
   useEffect(() => {
     if (speechRequested && intakeComplete) {
@@ -415,18 +444,14 @@ export default function Home() {
     }
   }
 
-  const bundleChangedSinceRequest =
-    speechRequested &&
-    bundleAtRequest &&
-    bundle &&
-    JSON.stringify(bundle) !== JSON.stringify(bundleAtRequest);
-
   const inputStatus: NodeStatus = criteriaMet ? "complete" : ancValid || tempValid ? "active" : "idle";
-  const algorithmStatus: NodeStatus = criteriaMet
+  const algorithmStatus: NodeStatus = !criteriaMet
+    ? "idle"
+    : modifiersComplete
     ? alertResponse === "engaged" || alertResponse === "dismissed"
       ? "complete"
       : "active"
-    : "idle";
+    : "active";
   const claudeStatus: NodeStatus =
     alertResponse === "dismissed"
       ? "idle"
@@ -515,7 +540,6 @@ export default function Home() {
             </p>
           </section>
 
-          {/* ---- OPEN HYPOTHETICAL CASE BUTTON ---- */}
           {noCaseLoaded && (
             <section className="mb-10 section-reveal">
               <button
@@ -525,7 +549,7 @@ export default function Home() {
                 Open hypothetical case →
               </button>
               <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
-                Loads a worked example. You can adjust any value to see how the algorithm responds.
+                Loads a worked example. You will walk through the patient modifiers as the algorithm composes the case.
               </p>
             </section>
           )}
@@ -598,8 +622,195 @@ export default function Home() {
             </section>
           )}
 
-          {criteriaMet && alertResponse === "pending" && (
-            <section className="mb-12 section-reveal">
+          {/* ---- MODIFIER SEQUENCE ---- */}
+          {criteriaMet && modifierStep >= 0 && !modifiersComplete && (
+            <section ref={modifierSectionRef} className="mb-12 section-reveal scroll-mt-24">
+              <div className="mb-6">
+                <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
+                  Composing the case
+                </p>
+                <p className="text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)] italic">
+                  Step {modifierStep + 1} of {MODIFIER_SEQUENCE.length}. Each answer is fed to the algorithm.
+                </p>
+              </div>
+
+              {/* Breadcrumb of completed answers */}
+              {modifierAnswers.length > 0 && (
+                <div className="mb-8 p-4 border border-[var(--border)] bg-[var(--surface)] rounded font-[family-name:var(--font-mono)] text-sm space-y-1">
+                  {modifierAnswers.map((answer, i) => (
+                    <div key={i} className="flex items-baseline gap-3">
+                      <span className="block w-2 h-2 rounded-full bg-[var(--accent-green)] mt-1.5 flex-shrink-0" />
+                      <span className="text-[var(--text-muted)] text-xs uppercase tracking-wider min-w-[160px]">
+                        {answer.label}
+                      </span>
+                      <span className="text-[var(--text)]">{answer.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Current question card */}
+              <div
+                key={`question-${modifierStep}`}
+                className="question-advance text-center py-8"
+              >
+                {modifierStep === 0 && (
+                  <ModifierQuestion title="Hemodynamic status?">
+                    <ModifierButton
+                      label="Stable"
+                      subtitle="normal blood pressure, perfusion intact"
+                      onClick={() =>
+                        answerModifier("hemodynamic", "Hemodynamic status", "stable", () =>
+                          setHemodynamicallyStable(true)
+                        )
+                      }
+                    />
+                    <ModifierButton
+                      label="Unstable"
+                      subtitle="hypotension, signs of sepsis"
+                      onClick={() =>
+                        answerModifier("hemodynamic", "Hemodynamic status", "unstable", () =>
+                          setHemodynamicallyStable(false)
+                        )
+                      }
+                    />
+                  </ModifierQuestion>
+                )}
+
+                {modifierStep === 1 && (
+                  <ModifierQuestion title="Recent MDR colonization?">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
+                      <ModifierButton
+                        label="None"
+                        subtitle="no documented resistant organisms"
+                        onClick={() =>
+                          answerModifier("mdr", "MDR colonization", "none", () => {
+                            setMrsa(false);
+                            setVre(false);
+                            setEsbl(false);
+                            setKpc(false);
+                          })
+                        }
+                      />
+                      <ModifierButton
+                        label="MRSA"
+                        subtitle="adds glycopeptide coverage"
+                        onClick={() =>
+                          answerModifier("mdr", "MDR colonization", "MRSA", () => {
+                            setMrsa(true);
+                            setVre(false);
+                            setEsbl(false);
+                            setKpc(false);
+                          })
+                        }
+                      />
+                      <ModifierButton
+                        label="VRE"
+                        subtitle="substitutes oxazolidinone"
+                        onClick={() =>
+                          answerModifier("mdr", "MDR colonization", "VRE", () => {
+                            setMrsa(false);
+                            setVre(true);
+                            setEsbl(false);
+                            setKpc(false);
+                          })
+                        }
+                      />
+                      <ModifierButton
+                        label="ESBL"
+                        subtitle="escalates β-lactam to carbapenem"
+                        onClick={() =>
+                          answerModifier("mdr", "MDR colonization", "ESBL", () => {
+                            setMrsa(false);
+                            setVre(false);
+                            setEsbl(true);
+                            setKpc(false);
+                          })
+                        }
+                      />
+                      <ModifierButton
+                        label="KPC"
+                        subtitle="requires β-lactam-inhibitor combination"
+                        onClick={() =>
+                          answerModifier("mdr", "MDR colonization", "KPC", () => {
+                            setMrsa(false);
+                            setVre(false);
+                            setEsbl(false);
+                            setKpc(true);
+                          })
+                        }
+                      />
+                    </div>
+                  </ModifierQuestion>
+                )}
+
+                {modifierStep === 2 && (
+                  <ModifierQuestion title="Renal function?">
+                    <ModifierButton
+                      label="GFR ≥60"
+                      subtitle="normal renal function"
+                      onClick={() =>
+                        answerModifier("renal", "Renal function", "GFR ≥60", () =>
+                          setRenalFunction("normal")
+                        )
+                      }
+                    />
+                    <ModifierButton
+                      label="GFR <30"
+                      subtitle="significant impairment, dose adjustment required"
+                      onClick={() =>
+                        answerModifier("renal", "Renal function", "GFR <30", () =>
+                          setRenalFunction("impaired")
+                        )
+                      }
+                    />
+                  </ModifierQuestion>
+                )}
+
+                {modifierStep === 3 && (
+                  <ModifierQuestion title="Indwelling central catheter?">
+                    <ModifierButton
+                      label="Yes"
+                      subtitle="adds glycopeptide for line-related coverage"
+                      onClick={() =>
+                        answerModifier("catheter", "Indwelling catheter", "present", () =>
+                          setCatheterPresent(true)
+                        )
+                      }
+                    />
+                    <ModifierButton
+                      label="No"
+                      subtitle="standard regimen"
+                      onClick={() =>
+                        answerModifier("catheter", "Indwelling catheter", "absent", () =>
+                          setCatheterPresent(false)
+                        )
+                      }
+                    />
+                  </ModifierQuestion>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ---- ALERT DECISION POINT ---- */}
+          {criteriaMet && modifiersComplete && alertResponse === "pending" && (
+            <section ref={alertSectionRef} className="mb-12 section-reveal scroll-mt-24">
+              {/* Show the completed breadcrumb */}
+              {modifierAnswers.length > 0 && (
+                <div className="mb-8 p-4 border border-[var(--border)] bg-[var(--surface)] rounded font-[family-name:var(--font-mono)] text-sm space-y-1">
+                  {modifierAnswers.map((answer, i) => (
+                    <div key={i} className="flex items-baseline gap-3">
+                      <span className="block w-2 h-2 rounded-full bg-[var(--accent-green)] mt-1.5 flex-shrink-0" />
+                      <span className="text-[var(--text-muted)] text-xs uppercase tracking-wider min-w-[160px]">
+                        {answer.label}
+                      </span>
+                      <span className="text-[var(--text)]">{answer.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <p className="text-sm text-[var(--text-muted)] mb-4 font-[family-name:var(--font-sans)]">
                 The deterministic algorithm has produced a recommendation. Claude has drafted an opinion on the case in the voice of a hospitalist colleague.
               </p>
@@ -627,7 +838,7 @@ export default function Home() {
               </p>
               <p className="text-base text-[var(--text)] leading-relaxed">
                 The clinician proceeds independently. Lowfire&apos;s second-opinion layer is offered, not imposed —
-                the AI is one path among several. To re-engage the alert and read the second opinion, refresh
+                the AI is one path among several. To re-engage the alert and read the opinion, refresh
                 the page.
               </p>
             </section>
@@ -698,18 +909,6 @@ export default function Home() {
                       </p>
                     )}
                   </div>
-
-                  {bundleChangedSinceRequest && !speechLoading && (
-                    <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)] italic">
-                      Modifiers changed since this opinion was generated.{" "}
-                      <button
-                        onClick={handleGetSecondOpinion}
-                        className="underline hover:text-[var(--text)]"
-                      >
-                        Regenerate
-                      </button>
-                    </p>
-                  )}
                 </section>
               )}
 
@@ -862,6 +1061,45 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+function ModifierQuestion({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="font-[family-name:var(--font-sans)] text-2xl text-[var(--text)] mb-8 font-light">
+        {title}
+      </h3>
+      <div className="flex flex-wrap justify-center gap-3 font-[family-name:var(--font-sans)]">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModifierButton({
+  label,
+  subtitle,
+  onClick,
+}: {
+  label: string;
+  subtitle?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group min-w-[180px] px-6 py-5 bg-[var(--surface)] border border-[var(--border-strong)] rounded text-left hover:bg-[var(--text)] hover:border-[var(--text)] transition-colors"
+    >
+      <div className="text-lg font-medium text-[var(--text)] group-hover:text-[var(--background)]">
+        {label}
+      </div>
+      {subtitle && (
+        <div className="text-xs text-[var(--text-subtle)] mt-1 group-hover:text-[var(--background)]/70">
+          {subtitle}
+        </div>
+      )}
+    </button>
   );
 }
 

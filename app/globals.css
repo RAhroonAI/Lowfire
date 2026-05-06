@@ -65,10 +65,16 @@ html, body {
   50%      { opacity: 1; }
 }
 
-.section-reveal { animation: fadeInUp 340ms ease-out both; }
-.fade-reveal    { animation: fadeIn 280ms ease-out both; }
-.trigger-glow   { animation: amberGlow 1400ms ease-out 200ms 1; }
-.dot-complete   { animation: dotPulseComplete 480ms ease-out 1; }
+@keyframes questionAdvance {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.section-reveal       { animation: fadeInUp 340ms ease-out both; }
+.fade-reveal          { animation: fadeIn 280ms ease-out both; }
+.trigger-glow         { animation: amberGlow 1400ms ease-out 200ms 1; }
+.dot-complete         { animation: dotPulseComplete 480ms ease-out 1; }
+.question-advance     { animation: questionAdvance 360ms ease-out both; }
 
 .dot-base {
   transition: background-color 280ms ease-out, border-color 280ms ease-out;
