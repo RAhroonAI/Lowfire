@@ -50,8 +50,7 @@ export default function Home() {
   const [catheterPresent, setCatheterPresent] = useState<boolean>(false);
   const [mucositis] = useState<Mucositis>("none");
 
-  // Modifier flow state
-  const [modifierStep, setModifierStep] = useState<number>(-1); // -1 = not started, 0..N-1 = current, N = complete
+  const [modifierStep, setModifierStep] = useState<number>(-1);
   const [modifierAnswers, setModifierAnswers] = useState<ModifierAnswer[]>([]);
 
   const [alertResponse, setAlertResponse] = useState<AlertResponse>("pending");
@@ -155,7 +154,6 @@ export default function Home() {
     setAnc("200");
     setTemp("38.5");
     setSustained(false);
-    // Reset modifiers — user will click through them
     setHemodynamicallyStable(true);
     setMrsa(false);
     setVre(false);
@@ -166,7 +164,6 @@ export default function Home() {
     setModifierStep(0);
     setModifierAnswers([]);
     setTimeout(() => scrollIntoViewSoft(inputsSectionRef.current), 100);
-    // After the trigger fires (criteriaMet becomes true), scroll to modifier section
     setTimeout(() => scrollIntoViewSoft(modifierSectionRef.current), 700);
   }
 
@@ -528,8 +525,8 @@ export default function Home() {
             <p className="text-lg leading-relaxed text-[var(--text)]">
               The urine looks clean even when there&apos;s a urinary infection. The chest X-ray looks normal even
               when there&apos;s pneumonia. Vital signs may hold even as bacteremia progresses. Fever is often the
-              only signal left. That&apos;s why a low ANC plus a fever is treated as an emergency on its own —
-              and why the empiric antibiotic window is measured in minutes, not hours.
+              only signal left. That&apos;s why a low ANC plus a fever is one of the most actionable lab combinations
+              in medicine — the empiric antibiotic window is measured in minutes, not hours.
             </p>
           </section>
 
@@ -541,7 +538,7 @@ export default function Home() {
           </section>
 
           {noCaseLoaded && (
-            <section className="mb-10 section-reveal">
+            <section className="mb-10 section-reveal text-center">
               <button
                 onClick={handleOpenHypotheticalCase}
                 className="font-[family-name:var(--font-sans)] px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
@@ -554,12 +551,12 @@ export default function Home() {
             </section>
           )}
 
-          <section ref={inputsSectionRef} className="mb-10 scroll-mt-24">
+          <section ref={inputsSectionRef} className="mb-10 scroll-mt-24 text-center">
             <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-5">
               Inputs
             </h2>
 
-            <div className="space-y-6">
+            <div className="space-y-6 inline-block text-left">
               <div>
                 <label className="block text-sm text-[var(--text)] mb-2 font-[family-name:var(--font-sans)]">
                   Absolute neutrophil count (ANC)
@@ -607,9 +604,9 @@ export default function Home() {
           {criteriaMet && (
             <section
               key={`trigger-${criteriaMet}`}
-              className="mb-6 p-5 border-l-2 border-[var(--accent-amber)] bg-[var(--accent-amber-bg)] section-reveal trigger-glow scroll-mt-24"
+              className="mb-6 p-5 border-l-2 border-[var(--accent-red)] bg-[var(--accent-red-bg)] section-reveal trigger-glow scroll-mt-24"
             >
-              <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--accent-amber)] mb-2">
+              <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--accent-red)] mb-2">
                 Trigger
               </p>
               <p className="text-base text-[var(--text)]">
@@ -622,10 +619,9 @@ export default function Home() {
             </section>
           )}
 
-          {/* ---- MODIFIER SEQUENCE ---- */}
           {criteriaMet && modifierStep >= 0 && !modifiersComplete && (
             <section ref={modifierSectionRef} className="mb-12 section-reveal scroll-mt-24">
-              <div className="mb-6">
+              <div className="mb-6 text-center">
                 <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
                   Composing the case
                 </p>
@@ -634,7 +630,6 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* Breadcrumb of completed answers */}
               {modifierAnswers.length > 0 && (
                 <div className="mb-8 p-4 border border-[var(--border)] bg-[var(--surface)] rounded font-[family-name:var(--font-mono)] text-sm space-y-1">
                   {modifierAnswers.map((answer, i) => (
@@ -649,7 +644,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Current question card */}
               <div
                 key={`question-${modifierStep}`}
                 className="question-advance text-center py-8"
@@ -793,10 +787,8 @@ export default function Home() {
             </section>
           )}
 
-          {/* ---- ALERT DECISION POINT ---- */}
           {criteriaMet && modifiersComplete && alertResponse === "pending" && (
             <section ref={alertSectionRef} className="mb-12 section-reveal scroll-mt-24">
-              {/* Show the completed breadcrumb */}
               {modifierAnswers.length > 0 && (
                 <div className="mb-8 p-4 border border-[var(--border)] bg-[var(--surface)] rounded font-[family-name:var(--font-mono)] text-sm space-y-1">
                   {modifierAnswers.map((answer, i) => (
@@ -811,22 +803,24 @@ export default function Home() {
                 </div>
               )}
 
-              <p className="text-sm text-[var(--text-muted)] mb-4 font-[family-name:var(--font-sans)]">
-                The deterministic algorithm has produced a recommendation. Claude has drafted an opinion on the case in the voice of a hospitalist colleague.
-              </p>
-              <div className="flex flex-wrap gap-3 font-[family-name:var(--font-sans)]">
-                <button
-                  onClick={handleEngageAlert}
-                  className="px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
-                >
-                  Read AI opinion →
-                </button>
-                <button
-                  onClick={handleDismissAlert}
-                  className="px-6 py-3 bg-transparent border border-[var(--border-strong)] text-[var(--text)] rounded text-sm font-medium hover:border-[var(--text-muted)] transition-colors"
-                >
-                  Dismiss alert
-                </button>
+              <div className="text-center">
+                <p className="text-sm text-[var(--text-muted)] mb-4 font-[family-name:var(--font-sans)]">
+                  The deterministic algorithm has produced a recommendation. Claude has drafted an opinion on the case in the voice of a hospitalist colleague.
+                </p>
+                <div className="flex flex-wrap justify-center gap-3 font-[family-name:var(--font-sans)]">
+                  <button
+                    onClick={handleEngageAlert}
+                    className="px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
+                  >
+                    Read AI opinion →
+                  </button>
+                  <button
+                    onClick={handleDismissAlert}
+                    className="px-6 py-3 bg-transparent border border-[var(--border-strong)] text-[var(--text)] rounded text-sm font-medium hover:border-[var(--text-muted)] transition-colors"
+                  >
+                    Dismiss alert
+                  </button>
+                </div>
               </div>
             </section>
           )}
@@ -913,11 +907,11 @@ export default function Home() {
               )}
 
               {speechRequested && !speechLoading && !speechError && speech && decision === "pending" && (
-                <section className="mb-10 section-reveal">
+                <section className="mb-10 section-reveal text-center">
                   <p className="text-xs text-[var(--text-subtle)] mb-3 font-[family-name:var(--font-sans)]">
                     Demonstration only — no real orders will be placed.
                   </p>
-                  <div className="flex gap-3 font-[family-name:var(--font-sans)]">
+                  <div className="flex flex-wrap justify-center gap-3 font-[family-name:var(--font-sans)]">
                     <button
                       onClick={handleSign}
                       className="px-6 py-2.5 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
@@ -976,10 +970,16 @@ export default function Home() {
 
               {decision === "signed" && cascadeComplete && (closing || closingLoading) && (
                 <section ref={closingSectionRef} className="mb-10 section-reveal scroll-mt-24">
-                  <div className="p-6 border-l-2 border-[var(--border-strong)] bg-[var(--surface)]">
-                    <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-3">
-                      Closing
-                    </p>
+                  <div className="flex items-baseline justify-between mb-4">
+                    <h2 className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                      AI opinion
+                    </h2>
+                    <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--text-subtle)]">
+                      claude-sonnet-4-5
+                    </span>
+                  </div>
+
+                  <div className="p-6 border border-[var(--border)] bg-[var(--surface)] rounded min-h-[100px]">
                     <p className="text-lg text-[var(--text)] leading-relaxed whitespace-pre-wrap">
                       {closing}
                       {closingLoading && (
@@ -991,7 +991,7 @@ export default function Home() {
               )}
 
               {decision === "signed" && closingComplete && !noteRequested && (
-                <section className="mb-10 section-reveal">
+                <section className="mb-10 section-reveal text-center">
                   <button
                     onClick={handleCreateNote}
                     className="font-[family-name:var(--font-sans)] px-6 py-3 bg-[var(--text)] text-[var(--background)] rounded text-sm font-medium hover:bg-black transition-colors"
@@ -1022,7 +1022,7 @@ export default function Home() {
                     <SoapNote text={note} loading={noteLoading} />
                   </div>
                   {!noteLoading && note && (
-                    <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)] italic">
+                    <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)] italic text-center">
                       Draft only. Not signed, not entered into any chart.
                     </p>
                   )}
@@ -1049,7 +1049,7 @@ export default function Home() {
             </>
           )}
 
-          <footer className="mt-20 pt-10 border-t border-[var(--border)] text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)]">
+          <footer className="mt-20 pt-10 border-t border-[var(--border)] text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)] text-center">
             <p>
               Lowfire · A Floviken laboratory experiment ·{" "}
               <a href="https://floviken.se" className="hover:text-[var(--text)] underline-offset-4 hover:underline">floviken.se</a>

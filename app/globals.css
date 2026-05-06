@@ -15,6 +15,8 @@
   --accent-green: #5a7a3e;
   --accent-green-bg: #e0e6d4;
   --accent-red: #9b3a3a;
+  --accent-red-bg: #f0dada;
+  --accent-red-glow: rgba(155, 58, 58, 0.22);
 
   --font-serif: var(--font-eb-garamond);
   --font-sans: var(--font-inter);
@@ -48,10 +50,10 @@ html, body {
   to   { opacity: 1; }
 }
 
-@keyframes amberGlow {
-  0%   { box-shadow: 0 0 0 0 var(--accent-amber-glow); }
-  50%  { box-shadow: 0 0 28px 4px var(--accent-amber-glow); }
-  100% { box-shadow: 0 0 0 0 var(--accent-amber-glow); }
+@keyframes redGlow {
+  0%   { box-shadow: 0 0 0 0 var(--accent-red-glow); }
+  50%  { box-shadow: 0 0 28px 4px var(--accent-red-glow); }
+  100% { box-shadow: 0 0 0 0 var(--accent-red-glow); }
 }
 
 @keyframes dotPulseComplete {
@@ -72,7 +74,7 @@ html, body {
 
 .section-reveal       { animation: fadeInUp 340ms ease-out both; }
 .fade-reveal          { animation: fadeIn 280ms ease-out both; }
-.trigger-glow         { animation: amberGlow 1400ms ease-out 200ms 1; }
+.trigger-glow         { animation: redGlow 1400ms ease-out 200ms 1; }
 .dot-complete         { animation: dotPulseComplete 480ms ease-out 1; }
 .question-advance     { animation: questionAdvance 360ms ease-out both; }
 
