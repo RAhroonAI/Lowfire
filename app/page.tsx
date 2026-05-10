@@ -150,6 +150,38 @@ export default function Home() {
     setOverrideReason("");
   }
 
+  function handleStartOver() {
+    if (speechAbortRef.current) speechAbortRef.current.abort();
+    setAnc("");
+    setTemp("");
+    setSustained(false);
+    setHemodynamicallyStable(true);
+    setMrsa(false);
+    setVre(false);
+    setEsbl(false);
+    setKpc(false);
+    setRenalFunction("normal");
+    setCatheterPresent(false);
+    setModifierStep(-1);
+    setModifierAnswers([]);
+    setAlertResponse("pending");
+    setIntake([]);
+    setIntakeComplete(false);
+    setSpeech("");
+    setSpeechError(null);
+    setSpeechRequested(false);
+    setBundleAtRequest(null);
+    setDecision("pending");
+    setCascade([]);
+    setCascadeComplete(false);
+    setClosing("");
+    setClosingComplete(false);
+    setNoteRequested(false);
+    setNote("");
+    setOverrideReason("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function handleOpenHypotheticalCase() {
     setAnc("200");
     setTemp("38.5");
@@ -829,16 +861,29 @@ export default function Home() {
           )}
 
           {alertResponse === "dismissed" && (
-            <section className="mb-12 p-5 border border-[var(--border)] bg-[var(--surface)] rounded section-reveal">
-              <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
-                Alert dismissed
-              </p>
-              <p className="text-base text-[var(--text)] leading-relaxed">
-                The clinician proceeds independently. Lowfire&apos;s second-opinion layer is offered, not imposed —
-                the AI is one path among several. To re-engage the alert and read the opinion, refresh
-                the page.
-              </p>
-            </section>
+            <>
+              <section className="mb-12 p-5 border border-[var(--border)] bg-[var(--surface)] rounded section-reveal">
+                <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
+                  Alert dismissed
+                </p>
+                <p className="text-base text-[var(--text)] leading-relaxed">
+                  The clinician proceeds independently. Lowfire&apos;s second-opinion layer is offered, not imposed —
+                  the AI is one path among several.
+                </p>
+              </section>
+
+              <section className="mb-10 section-reveal text-center">
+                <button
+                  onClick={handleStartOver}
+                  className="font-[family-name:var(--font-sans)] px-6 py-3 bg-transparent border border-[var(--border-strong)] text-[var(--text)] rounded text-sm font-medium hover:border-[var(--text-muted)] transition-colors"
+                >
+                  Try another case →
+                </button>
+                <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
+                  Resets the page so you can walk through with different patient modifiers.
+                </p>
+              </section>
+            </>
           )}
 
           {alertResponse === "engaged" && criteriaMet && (
@@ -1032,22 +1077,50 @@ export default function Home() {
                 </section>
               )}
 
-              {decision === "overridden" && (
-                <section className="mb-10 p-6 border-l-2 border-[var(--border-strong)] bg-[var(--surface)] section-reveal">
-                  <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-3">
-                    Override recorded
+              {noteRequested && !noteLoading && note && (
+                <section className="mb-10 section-reveal text-center">
+                  <button
+                    onClick={handleStartOver}
+                    className="font-[family-name:var(--font-sans)] px-6 py-3 bg-transparent border border-[var(--border-strong)] text-[var(--text)] rounded text-sm font-medium hover:border-[var(--text-muted)] transition-colors"
+                  >
+                    Try another case →
+                  </button>
+                  <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
+                    Resets the page so you can walk through with different patient modifiers.
                   </p>
-                  <p className="text-base text-[var(--text)] mb-4">
-                    The recommendation was not executed. What&apos;s the concern?
-                  </p>
-                  <textarea
-                    value={overrideReason}
-                    onChange={(e) => setOverrideReason(e.target.value)}
-                    placeholder="Optional — what would you do differently?"
-                    rows={3}
-                    className="w-full bg-[var(--background)] border border-[var(--border-strong)] rounded px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-muted)] resize-none font-[family-name:var(--font-sans)]"
-                  />
                 </section>
+              )}
+
+              {decision === "overridden" && (
+                <>
+                  <section className="mb-10 p-6 border-l-2 border-[var(--border-strong)] bg-[var(--surface)] section-reveal">
+                    <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-3">
+                      Override recorded
+                    </p>
+                    <p className="text-base text-[var(--text)] mb-4">
+                      The recommendation was not executed. What&apos;s the concern?
+                    </p>
+                    <textarea
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      placeholder="Optional — what would you do differently?"
+                      rows={3}
+                      className="w-full bg-[var(--background)] border border-[var(--border-strong)] rounded px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-muted)] resize-none font-[family-name:var(--font-sans)]"
+                    />
+                  </section>
+
+                  <section className="mb-10 section-reveal text-center">
+                    <button
+                      onClick={handleStartOver}
+                      className="font-[family-name:var(--font-sans)] px-6 py-3 bg-transparent border border-[var(--border-strong)] text-[var(--text)] rounded text-sm font-medium hover:border-[var(--text-muted)] transition-colors"
+                    >
+                      Try another case →
+                    </button>
+                    <p className="text-xs text-[var(--text-subtle)] mt-3 font-[family-name:var(--font-sans)]">
+                      Resets the page so you can walk through with different patient modifiers.
+                    </p>
+                  </section>
+                </>
               )}
             </>
           )}
