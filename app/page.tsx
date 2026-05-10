@@ -625,8 +625,11 @@ export default function Home() {
                 <p className="font-[family-name:var(--font-sans)] text-xs uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
                   Composing the case
                 </p>
-                <p className="text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)] italic">
+                <p className="text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)] italic mb-3">
                   Step {modifierStep + 1} of {MODIFIER_SEQUENCE.length}. Each answer is fed to the algorithm.
+                </p>
+                <p className="text-sm text-[var(--text-muted)] font-[family-name:var(--font-sans)] italic max-w-xl mx-auto">
+                  Each answer is a fact about the patient that changes which antibiotic regimen the algorithm produces.
                 </p>
               </div>
 
@@ -672,7 +675,7 @@ export default function Home() {
                 )}
 
                 {modifierStep === 1 && (
-                  <ModifierQuestion title="Recent MDR colonization?">
+                  <ModifierQuestion title="Recent multidrug-resistant organism colonization?">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
                       <ModifierButton
                         label="None"
@@ -688,7 +691,7 @@ export default function Home() {
                       />
                       <ModifierButton
                         label="MRSA"
-                        subtitle="adds glycopeptide coverage"
+                        subtitle="Methicillin-resistant Staphylococcus aureus — adds glycopeptide coverage"
                         onClick={() =>
                           answerModifier("mdr", "MDR colonization", "MRSA", () => {
                             setMrsa(true);
@@ -700,7 +703,7 @@ export default function Home() {
                       />
                       <ModifierButton
                         label="VRE"
-                        subtitle="substitutes oxazolidinone"
+                        subtitle="Vancomycin-resistant Enterococcus — substitutes oxazolidinone"
                         onClick={() =>
                           answerModifier("mdr", "MDR colonization", "VRE", () => {
                             setMrsa(false);
@@ -712,7 +715,7 @@ export default function Home() {
                       />
                       <ModifierButton
                         label="ESBL"
-                        subtitle="escalates β-lactam to carbapenem"
+                        subtitle="Extended-spectrum β-lactamase organism — escalates β-lactam to carbapenem"
                         onClick={() =>
                           answerModifier("mdr", "MDR colonization", "ESBL", () => {
                             setMrsa(false);
@@ -724,7 +727,7 @@ export default function Home() {
                       />
                       <ModifierButton
                         label="KPC"
-                        subtitle="requires β-lactam-inhibitor combination"
+                        subtitle="Klebsiella pneumoniae carbapenemase — requires β-lactam-inhibitor combination"
                         onClick={() =>
                           answerModifier("mdr", "MDR colonization", "KPC", () => {
                             setMrsa(false);
