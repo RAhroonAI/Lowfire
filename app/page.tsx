@@ -1063,7 +1063,7 @@ export default function Home() {
                     </span>
                   </div>
                   <p className="text-sm text-[var(--text-muted)] mb-5 font-[family-name:var(--font-sans)] italic">
-                    Demonstration as if the clinician had visited the patient bedside.
+                    Demonstration only. Vital signs, exam findings, and underlying diagnosis are AI-invented for illustration — they were not entered by the user.
                   </p>
 
                   <div className="p-6 border border-[var(--border)] bg-[var(--surface)] rounded min-h-[140px] font-[family-name:var(--font-sans)] text-sm text-[var(--text)] leading-relaxed">
